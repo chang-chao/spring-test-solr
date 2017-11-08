@@ -27,98 +27,85 @@ import org.springframework.test.context.support.AbstractTestExecutionListener;
 import org.springframework.util.FileCopyUtils;
 
 public class SolrTestExecutionListener extends AbstractTestExecutionListener {
-  private SolrClient solrClient;
+	private SolrClient solrClient;
 
-  private String collection;
+	private String collection;
 
-  public SolrTestExecutionListener() throws IOException {
-    super();
-    final Properties properties = new Properties();
-    try (final InputStream stream = this.getClass().getResourceAsStream("/solr-test.properties")) {
-      properties.load(stream);
-    }
+	public SolrTestExecutionListener() throws IOException {
+		super();
+		final Properties properties = new Properties();
+		try (final InputStream stream = this.getClass().getResourceAsStream("/solr-test.properties")) {
+			properties.load(stream);
+		}
 
-    this.solrClient = new HttpSolrClient.Builder(properties.getProperty("baseUrl")).build();
-    this.collection = properties.getProperty("collection");
-  }
+		this.solrClient = new HttpSolrClient.Builder(properties.getProperty("baseUrl")).build();
+		this.collection = properties.getProperty("collection");
+	}
 
+	@SuppressWarnings("unchecked")
+	@Override
+	public void beforeTestMethod(TestContext testContext) throws Exception {
+		doInTransaction(() -> {
+			solrClient.deleteByQuery(collection, "*:*");
+			SolrSetup setupAnnotation = AnnotationUtils.getAnnotation(testContext.getTestMethod(), SolrSetup.class);
+			if (setupAnnotation == null) {
+				return;
+			}
+			String jsonFile = setupAnnotation.value();
 
+			String inputJson = FileCopyUtils.copyToString(new InputStreamReader(
+					testContext.getTestClass().getResourceAsStream(jsonFile), StandardCharsets.UTF_8));
+			JSONArray inputData = (JSONArray) JSONParser.parseJSON(inputJson);
+			for (int i = 0; i < inputData.length(); i++) {
+				JSONObject object = (JSONObject) inputData.get(i);
+				SolrInputDocument solrDoc = new SolrInputDocument();
+				object.keys().forEachRemaining(key -> {
+					try {
+						solrDoc.addField((String) key, object.get((String) key));
+					} catch (JSONException e) {
+						throw new RuntimeException(e);
+					}
+				});
+				solrClient.add(collection, solrDoc);
+			}
+		});
+	}
 
-  @SuppressWarnings("unchecked")
-  @Override
-  public void beforeTestMethod(TestContext testContext) throws Exception {
-    doInTransaction(() -> {
-      solrClient.deleteByQuery(collection, "*:*");
-      SolrSetup setupAnnotation =
-          AnnotationUtils.getAnnotation(testContext.getTestMethod(), SolrSetup.class);
-      if (setupAnnotation == null) {
-        return;
-      }
-      String jsonFile = setupAnnotation.value();
+	@Override
+	public void afterTestMethod(TestContext testContext) throws Exception {
 
-      String inputJson = FileCopyUtils.copyToString(new InputStreamReader(
-          testContext.getTestClass().getResourceAsStream(jsonFile), StandardCharsets.UTF_8));
-      JSONArray inputData = (JSONArray) JSONParser.parseJSON(inputJson);
-      for (int i = 0; i < inputData.length(); i++) {
-        JSONObject object = (JSONObject) inputData.get(i);
-        SolrInputDocument solrDoc = new SolrInputDocument();
-        object.keys().forEachRemaining(key -> {
-          try {
-            solrDoc.addField((String) key, object.get((String) key));
-          } catch (JSONException e) {
-            throw new RuntimeException(e);
-          }
-        });
-        solrClient.add(collection, solrDoc);
-      }
-    });
-  }
+		ExpectedSolr expectedAnnotation = AnnotationUtils.getAnnotation(testContext.getTestMethod(),
+				ExpectedSolr.class);
+		if (expectedAnnotation == null) {
+			return;
+		}
 
-  @Override
-  public void afterTestMethod(TestContext testContext) throws Exception {
+		String jsonFile = expectedAnnotation.value();
 
-    ExpectedSolr expectedAnnotation =
-        AnnotationUtils.getAnnotation(testContext.getTestMethod(), ExpectedSolr.class);
-    if (expectedAnnotation == null) {
-      return;
-    }
+		SolrQuery query = new SolrQuery("*:*");
+		QueryResponse response = solrClient.query(collection, query);
+		SolrDocumentList list = response.getResults();
+		JSONArray docArray = new JSONArray();
+		for (SolrDocument solrDocument : list) {
+			docArray.put(new JSONObject(solrDocument));
+		}
+		String responseInJson = docArray.toString();
 
-    String jsonFile = expectedAnnotation.value();
+		String expectedStr = FileCopyUtils.copyToString(new InputStreamReader(
+				testContext.getTestClass().getResourceAsStream(jsonFile), StandardCharsets.UTF_8));
+		JSONCompareResult result = JSONCompare.compareJSON(expectedStr, responseInJson, JSONCompareMode.LENIENT);
+		Assert.assertFalse(result.getMessage(), result.failed());
 
-    SolrQuery query = new SolrQuery("*:*");
-    QueryResponse response = solrClient.query(collection, query);
-    SolrDocumentList list = response.getResults();
-    JSONArray docArray = new JSONArray();
-    for (SolrDocument solrDocument : list) {
-      docArray.put(new JSONObject(solrDocument));
-    }
-    String responseInJson = docArray.toString();
+	}
 
-    String expectedStr = FileCopyUtils.copyToString(new InputStreamReader(
-        testContext.getTestClass().getResourceAsStream(jsonFile), StandardCharsets.UTF_8));
-    JSONCompareResult result =
-        JSONCompare.compareJSON(expectedStr, responseInJson, JSONCompareMode.LENIENT);
-    Assert.assertFalse(result.getMessage(), result.failed());
+	private void doInTransaction(SolrOperation r) throws Exception {
+		r.execute();
+		solrClient.commit(collection);
+	}
 
-  }
-
-
-  /**
-   * Solrへの本文の投入.
-   *
-   * @throws Exception
-   */
-  private void doInTransaction(SolrOperation r) throws Exception {
-    r.execute();
-    solrClient.commit(collection);
-  }
-
-  /**
-   * Solrの実行.
-   */
-  @FunctionalInterface
-  private static interface SolrOperation {
-    void execute() throws Exception;
-  }
+	@FunctionalInterface
+	private static interface SolrOperation {
+		void execute() throws Exception;
+	}
 
 }
