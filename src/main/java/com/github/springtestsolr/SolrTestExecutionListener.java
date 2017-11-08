@@ -1,4 +1,4 @@
-package jp.co.ntt_at.cis.horei_db.tools.solr;
+package com.github.springtestsolr;
 
 import java.io.IOException;
 import java.io.InputStream;

@@ -1,4 +1,4 @@
-package jp.co.ntt_at.cis.horei_db.tools.solr;
+package com.github.springtestsolr;
 
 import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;
@@ -11,6 +11,6 @@ import java.lang.annotation.Target;
 @Inherited
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.TYPE, ElementType.METHOD})
-public @interface SolrSetup {
+public @interface ExpectedSolr {
   String value() default "";
 }
