@@ -80,7 +80,8 @@ public class SolrTestExecutionListener extends AbstractTestExecutionListener {
 			return;
 		}
 
-		String jsonFile = expectedAnnotation.value();
+		Class<?> testClass = testContext.getTestClass();
+		String expectedJsonFile = expectedAnnotation.value();
 
 		SolrQuery query = new SolrQuery("*:*");
 		QueryResponse response = solrClient.query(collection, query);
@@ -89,12 +90,12 @@ public class SolrTestExecutionListener extends AbstractTestExecutionListener {
 		for (SolrDocument solrDocument : list) {
 			docArray.put(new JSONObject(solrDocument));
 		}
-		String responseInJson = docArray.toString();
+		String actualJson = docArray.toString();
 
-		String expectedStr = FileCopyUtils.copyToString(new InputStreamReader(
-				testContext.getTestClass().getResourceAsStream(jsonFile), StandardCharsets.UTF_8));
-		JSONCompareResult result = JSONCompare.compareJSON(expectedStr, responseInJson, JSONCompareMode.LENIENT);
-		Assert.assertFalse(result.getMessage(), result.failed());
+		String expectedJson = FileCopyUtils.copyToString(new InputStreamReader(
+				testClass.getResourceAsStream(expectedJsonFile), StandardCharsets.UTF_8));
+		JSONCompareResult cmpResult = JSONCompare.compareJSON(expectedJson, actualJson, JSONCompareMode.LENIENT);
+		Assert.assertFalse(cmpResult.getMessage(), cmpResult.failed());
 
 	}
 
